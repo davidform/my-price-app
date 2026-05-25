@@ -96,7 +96,7 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 3. 🤖 Telegram 機器人背景智慧執行緒（全新精簡格式優化版）
+# 3. 🤖 Telegram 機器人背景智慧執行緒 (保持上一版完全對齊的格式)
 @st.cache_resource
 def launch_telegram_bot():
     try:
@@ -112,17 +112,14 @@ def launch_telegram_bot():
             taiwan_tz = timezone(timedelta(hours=8))
             timestamp = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
             
-            # ✨ 按照新要求重新組裝「極簡金融風」報價單
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
             
             if max_data:
-                # 已修正：改為 MAX (USDT/TWD) : 並且刪除「緊鄰市場」
                 reply_text += f"🔸 MAX (USDT/TWD) : {max_data['last']:.3f}\n"
             
             if vnd_buy and vnd_sell:
-                # 已修正：改為對稱交易對標籤，刪除「跨境市場」
                 reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
                 reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
                 
@@ -136,7 +133,7 @@ def launch_telegram_bot():
 # 啟動機器人
 launch_telegram_bot()
 
-# 4. 網頁端前端畫面渲染
+# 4. 網頁端前端畫面渲染 (根據您的全新 5 項要求完美對齊)
 st.button("更新價格", use_container_width=True)
 
 max_data = get_max_usdt_twd()
@@ -148,17 +145,24 @@ now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
 st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
-st.subheader("MAX (USDT/TWD)")
+
+# 5. 將 MAX (USDT/TWD) 改為 "MAX"
+st.subheader("MAX")
 if max_data:
-    st.metric(label="最新成交價 (TWD)", value=f"{max_data['last']:.3f}")
+    # 4. 將 "最新成交價" 改為 "USDT / TWD"
+    st.metric(label="USDT / TWD", value=f"{max_data['last']:.3f}")
 else:
     st.error("MAX 數據獲取失敗")
 
 st.markdown("---")
-st.subheader("VND/USDT (Binance P2P)")
+
+# 1. 將 VND/USDT(Binance P2P) 改為 "Binance P2P"
+st.subheader("Binance P2P")
 if vnd_buy and vnd_sell:
     col1, col2 = st.columns(2)
-    col1.metric(label="VND 買 USDT", value=f"{vnd_buy:,.0f} ₫")
-    col2.metric(label="USDT 買 VND", value=f"{vnd_sell:,.0f} ₫")
+    # 2. 將 VND 買 USDT 改為 "VND / USDT"
+    col1.metric(label="VND / USDT", value=f"{vnd_buy:,.0f} ₫")
+    # 3. 將 USDT 買 VND 改為 "USDT / VND"
+    col2.metric(label="USDT / VND", value=f"{vnd_sell:,.0f} ₫")
 else:
     st.error("幣安 P2P 數據獲取失敗")
