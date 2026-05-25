@@ -10,26 +10,39 @@ st.set_page_config(page_title="即時報價", page_icon="💰", layout="centered
 st.markdown(
     """
     <style>
+    /* 禁止文字選取與複製 */
     body, [data-testid="stAppViewContainer"], [data-testid="stMetricValue"] {
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
     }
+    
+    /* 核心控距：大幅拉近所有元件的上下行距 */
     [data-testid="stVerticalBlock"] > div {
         padding-top: 0rem !important;
         padding-bottom: 0.2rem !important;
     }
-    .stMetric { margin-top: -12px !important; }
-    hr { margin-top: 8px !important; margin-bottom: 8px !important; }
+    
+    /* 縮減數據字卡 (Metric) 的上方空白 */
+    .stMetric {
+        margin-top: -12px !important;
+    }
+    
+    /* 縮減分隔線的上下外級距 */
+    hr {
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+# 標題完全置中
 st.markdown("<h1 style='text-align: center;'>即時報價</h1>", unsafe_allow_html=True)
 
-# 2. 數據抓取核心邏輯
+# 2. 核心數據抓取邏輯
 def get_max_usdt_twd():
     url = "https://max-api.maicoin.com/api/v2/tickers/usdttwd"
     try:
@@ -71,6 +84,7 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                     if is_merchant and has_bank:
                         valid_prices.append(float(item["adv"]["price"]))
                 
+                # 自動識別並剔除付費置頂廣告
                 if len(valid_prices) >= 2:
                     if trade_type == "BUY":
                         return valid_prices[1] if valid_prices[0] > valid_prices[1] else valid_prices[0]
@@ -82,17 +96,10 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 3. 🤖 Telegram 機器人背景智慧監聽（內建自我診斷防線）
+# 3. 🤖 Telegram 機器人背景智慧執行緒（全新精簡格式優化版）
 @st.cache_resource
 def launch_telegram_bot():
-    status = {"success": True, "error_msg": ""}
     try:
-        # 檢查保險箱是否存在金鑰
-        if "TELEGRAM_TOKEN" not in st.secrets:
-            status["success"] = False
-            status["error_msg"] = "Streamlit Secrets 保險箱內找不到 'TELEGRAM_TOKEN' 設定，請檢查設定是否正確儲存。"
-            return status
-
         tg_token = st.secrets["TELEGRAM_TOKEN"]
         bot = telebot.TeleBot(tg_token)
 
@@ -105,32 +112,29 @@ def launch_telegram_bot():
             taiwan_tz = timezone(timedelta(hours=8))
             timestamp = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
             
+            # ✨ 按照新要求重新組裝「極簡金融風」報價單
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
+            
             if max_data:
-                reply_text += f"緊鄰市場：\n"
-                reply_text += f"🔸 MAX (USDT/TWD) 最新成交: {max_data['last']:.3f}\n\n"
+                # 已修正：改為 MAX (USDT/TWD) : 並且刪除「緊鄰市場」
+                reply_text += f"🔸 MAX (USDT/TWD) : {max_data['last']:.3f}\n"
+            
             if vnd_buy and vnd_sell:
-                reply_text += f"跨境市場：\n"
-                reply_text += f"🔸 VND 買 USDT: {vnd_buy:,.0f} ₫\n"
-                reply_text += f"🔸 USDT 買 VND: {vnd_sell:,.0f} ₫\n"
+                # 已修正：改為對稱交易對標籤，刪除「跨境市場」
+                reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
+                reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
+                
             reply_text += f"────────────────"
             bot.reply_to(message, reply_text)
 
-        # 啟動長輪詢監聽
         threading.Thread(target=bot.infinity_polling, daemon=True).start()
     except Exception as e:
-        status["success"] = False
-        status["error_msg"] = f"機器人連線時發生未預期崩潰: {str(e)}"
-    return status
+        pass
 
-# 呼叫診斷器
-bot_status = launch_telegram_bot()
-
-# 若機器人啟動失敗，直接大大的呈現在網頁上提示你
-if not bot_status["success"]:
-    st.error(f"❌ Telegram 機器人未成功啟動！\n原因：{bot_status['error_msg']}")
+# 啟動機器人
+launch_telegram_bot()
 
 # 4. 網頁端前端畫面渲染
 st.button("更新價格", use_container_width=True)
