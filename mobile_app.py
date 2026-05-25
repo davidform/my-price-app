@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # 設定網頁標題與手機版優化
 st.set_page_config(page_title="跨境匯率監控", page_icon="💰", layout="centered")
@@ -14,7 +14,10 @@ def get_max_usdt_twd():
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
-            return {"buy": float(data.get("buy", 0)), "sell": float(data.get("sell", 0))}
+            return {
+                "sell": float(data.get("sell", 0)),   # 賣出價
+                "last": float(data.get("last", 0))    # 最新成交價
+            }
     except:
         pass
     return None
@@ -40,26 +43,27 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 手動刷新按鈕
-if st.button("🔄 立即刷新最新價格", use_container_width=True):
-    st.rerun()
+# 🔄 立即刷新按鈕（Streamlit 只要點擊按鈕就會自動觸全網頁重跑抓新數據）
+st.button("🔄 立即確認最新價格", use_container_width=True)
 
 # 獲取即時數據
 max_data = get_max_usdt_twd()
 vnd_buy = get_binance_p2p_usdt_vnd("BUY")
 vnd_sell = get_binance_p2p_usdt_vnd("SELL")
 
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-st.write(f"🕒 報價時間：`{now}`")
+# 強制修正為台灣時區 (UTC+8)
+taiwan_tz = timezone(timedelta(hours=8))
+now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
+st.write(f"🕒 台灣報價時間：`{now}`")
 
 st.markdown("---")
 
-# 顯示台灣 MAX 交易所區塊
+# 顯示台灣 MAX 交易所區塊 (已移除買入價，精準至小數點後三位)
 st.subheader("🇹🇼 台灣 MAX 交易所 (USDT/TWD)")
 if max_data:
     col1, col2 = st.columns(2)
-    col1.metric(label="用戶買入價 (TWD)", value=f"{max_data['buy']:.2f}")
-    col2.metric(label="用戶賣出價 (TWD)", value=f"{max_data['sell']:.2f}")
+    col1.metric(label="用戶賣出價 (TWD)", value=f"{max_data['sell']:.3f}")
+    col2.metric(label="最新成交價 (TWD)", value=f"{max_data['last']:.3f}")
 else:
     st.error("MAX 數據獲取失敗")
 
