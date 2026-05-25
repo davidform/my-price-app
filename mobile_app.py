@@ -38,7 +38,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 1 & 5. 移除副標題，並將主標題以 HTML 強制絕對置中
+# 標題完全置中（副標題已徹底移除）
 st.markdown("<h1 style='text-align: center;'>即時報價</h1>", unsafe_allow_html=True)
 
 def get_max_usdt_twd():
@@ -88,10 +88,16 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                     if is_merchant and has_bank:
                         valid_prices.append(float(item["adv"]["price"]))
                 
-                # 自動識別並剔除付費置頂廣告
+                # ✨ 自動識別並剔除付費置頂廣告，精準鎖定第二個常規欄位報價
                 if len(valid_prices) >= 2:
                     if trade_type == "BUY":
+                        # 購買（找低價）：若第一筆大於第二筆，說明是置頂廣告，自動跳過取第二個常規最優價
                         if valid_prices[0] > valid_prices[1]:
+                            return valid_prices[1]
+                        return valid_prices[0]
+                    else:
+                        # 出售（找高價）：若第一筆小於第二筆，說明是置頂廣告，自動跳過取第二個常規最優價
+                        if valid_prices[0] < valid_prices[1]:
                             return valid_prices[1]
                         return valid_prices[0]
                 elif len(valid_prices) == 1:
@@ -100,23 +106,24 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 2. 修改按鈕文字，移除前面所有圖示
+# 更新價格按鈕（無圖示）
 st.button("更新價格", use_container_width=True)
 
-# 獲取即時數據
+# 同時獲取 BUY 與 SELL 的即時數據
 max_data = get_max_usdt_twd()
 vnd_buy = get_binance_p2p_usdt_vnd("BUY")
+vnd_sell = get_binance_p2p_usdt_vnd("SELL")
 
 # 強制修正為台灣時區 (UTC+8)
 taiwan_tz = timezone(timedelta(hours=8))
 now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-# 3. 修改為指定的英文時間標籤，移除前方時鐘圖示
+# 修改為指定的英文時間標籤（無圖示）
 st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
 
-# 修改為指定的 MAX 區塊名稱
+# MAX 交易所區塊
 st.subheader("MAX (USDT/TWD)")
 if max_data:
     st.metric(label="最新成交價 (TWD)", value=f"{max_data['last']:.3f}")
@@ -125,9 +132,13 @@ else:
 
 st.markdown("---")
 
-# 修改為指定的 Binance P2P 區塊名稱
+# 幣安 P2P 區塊
 st.subheader("VND/USDT (Binance P2P)")
-if vnd_buy:
-    st.metric(label="VND 買 USDT (真實市場最優成本)", value=f"{vnd_buy:,.0f} ₫")
+if vnd_buy and vnd_sell:
+    col1, col2 = st.columns(2)
+    # 左欄：VND 買 USDT 的最優常規報價
+    col1.metric(label="VND 買 USDT", value=f"{vnd_buy:,.0f} ₫")
+    # 右欄：USDT 買 VND（即出售 tab）的最優常規報價
+    col2.metric(label="USDT 買 VND", value=f"{vnd_sell:,.0f} ₫")
 else:
     st.error("幣安 P2P 數據獲取失敗")
