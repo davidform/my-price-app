@@ -59,7 +59,7 @@ st.write(f"🕒 台灣報價時間：`{now}`")
 st.markdown("---")
 
 # 顯示台灣 MAX 交易所區塊 (已移除買入價，精準至小數點後三位)
-st.subheader("🇹🇼 台灣 MAX 交易所 (USDT/TWD)")
+st.subheader("MAX (USDT/TWD)")
 if max_data:
     col1, col2 = st.columns(2)
     col1.metric(label="用戶賣出價 (TWD)", value=f"{max_data['sell']:.3f}")
