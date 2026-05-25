@@ -27,24 +27,43 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    # 將 rows 改為 5，一次抓取前 5 筆以便過濾置頂廣告
+    
+    # 嚴格對齊網頁版篩選條件
     payload = {
-        "fiat": "VND", "page": 1, "rows": 5, "tradeType": trade_type,
-        "asset": "USDT", "countries": [], "payTypes": [],
-        "proMerchantAds": False, "shieldMerchantAds": False, "publisherType": None
+        "fiat": "VND", 
+        "page": 1, 
+        "rows": 5, 
+        "tradeType": trade_type,
+        "asset": "USDT", 
+        "countries": [], 
+        "payTypes": ["BankTransfer"],  # ✨ 只鎖定越南銀行轉帳，過濾奇特電子錢包的異常匯率
+        "proMerchantAds": False, 
+        "shieldMerchantAds": False, 
+        "publisherType": "merchant"    # ✨ 只看認證商家廣告，完全與網頁版勾選「顯示商家廣告」同步
     }
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=5)
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("data"):
-                # 收集前 5 筆商家的所有價格
+                # 依序提取前幾筆合格商家的價格
                 prices = [float(item["adv"]["price"]) for item in res_json["data"]]
-                if prices:
-                    # 【聰明過濾廣告邏輯】
-                    # BUY (用戶買USDT)：置頂廣告會故意放高價，所以我們要找最低的常規價 (min) -> 就會抓到 26,417
-                    # SELL (用戶賣USDT換VND)：我們要找最高換回最多越南盾的價格 (max)
-                    return min(prices) if trade_type == "BUY" else max(prices)
+                
+                if len(prices) >= 2:
+                    if trade_type == "BUY":
+                        # 用戶買入（找低價）：常規排序應由低到高（如 26417, 26419, 26425）
+                        # 如果第一筆(置頂廣告)價格反而比第二筆高，說明它是高價廣告，直接抓取第二個常規報價
+                        if prices[0] > prices[1]:
+                            return prices[1]
+                        return prices[0]
+                    else:
+                        # 用戶賣出（找高價）：常規排序應由高到低（如 26400, 26380, 26350）
+                        # 如果第一筆(置頂廣告)價格反而比第二筆低，說明它是低價廣告，直接抓取第二個常規報價
+                        if prices[0] < prices[1]:
+                            return prices[1]
+                        return prices[0]
+                elif len(prices) == 1:
+                    return prices[0]
     except:
         pass
     return None
@@ -64,7 +83,7 @@ st.write(f"🕒 台灣報價時間：`{now}`")
 
 st.markdown("---")
 
-# 顯示台灣 MAX 交易所區塊 (已移除賣出價，只保留最新成交價大字卡)
+# 顯示台灣 MAX 交易所區塊
 st.subheader("🇹🇼 台灣 MAX 交易所 (USDT/TWD)")
 if max_data:
     st.metric(label="最新成交價 (TWD)", value=f"{max_data['last']:.3f}")
@@ -73,7 +92,7 @@ else:
 
 st.markdown("---")
 
-# 顯示幣安 P2P 越南盾區塊 (已加入完美廣告過濾演算法)
+# 顯示幣安 P2P 越南盾區塊
 st.subheader("🇻🇳 幣安 P2P 越南盾 (USDT/VND)")
 if vnd_buy and vnd_sell:
     col1, col2 = st.columns(2)
