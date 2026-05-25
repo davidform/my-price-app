@@ -28,7 +28,7 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
-    # 嚴格對齊網頁版篩選條件
+    # 回歸最安全、100% 不會被幣安拒絕的基礎 Payload
     payload = {
         "fiat": "VND", 
         "page": 1, 
@@ -36,29 +36,29 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         "tradeType": trade_type,
         "asset": "USDT", 
         "countries": [], 
-        "payTypes": ["BankTransfer"],  # ✨ 只鎖定越南銀行轉帳，過濾奇特電子錢包的異常匯率
+        "payTypes": [],            # 保持留空，避免觸發後端字串阻擋
         "proMerchantAds": False, 
         "shieldMerchantAds": False, 
-        "publisherType": "merchant"    # ✨ 只看認證商家廣告，完全與網頁版勾選「顯示商家廣告」同步
+        "publisherType": None      # 保持留空，確保能成功拿到數據
     }
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=5)
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("data"):
-                # 依序提取前幾筆合格商家的價格
+                # 提取前幾筆商家的價格
                 prices = [float(item["adv"]["price"]) for item in res_json["data"]]
                 
                 if len(prices) >= 2:
                     if trade_type == "BUY":
-                        # 用戶買入（找低價）：常規排序應由低到高（如 26417, 26419, 26425）
-                        # 如果第一筆(置頂廣告)價格反而比第二筆高，說明它是高價廣告，直接抓取第二個常規報價
+                        # BUY (用戶買入)：正常常規排序應由低到高 (如 26417, 26419)
+                        # 如果第一筆（置頂廣告）大於第二筆（如 27329 > 26417），說明是高價廣告，自動跳過並精準鎖定第二排常規報價！
                         if prices[0] > prices[1]:
                             return prices[1]
                         return prices[0]
                     else:
-                        # 用戶賣出（找高價）：常規排序應由高到低（如 26400, 26380, 26350）
-                        # 如果第一筆(置頂廣告)價格反而比第二筆低，說明它是低價廣告，直接抓取第二個常規報價
+                        # SELL (用戶賣出)：正常常規排序應由高到低 (如 26400, 26380)
+                        # 如果第一筆小於第二筆，說明是低價廣告，自動跳過取第二排常規報價！
                         if prices[0] < prices[1]:
                             return prices[1]
                         return prices[0]
