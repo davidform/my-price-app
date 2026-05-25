@@ -5,24 +5,41 @@ from datetime import datetime, timedelta, timezone
 # 設定網頁標題與手機版優化
 st.set_page_config(page_title="即時報價", page_icon="💰", layout="centered")
 
-# 🔒 網頁唯讀安全防護：全面禁止文字選取與複製
+# 🔒 終極視覺控制：全面禁止複製、標題置中、大幅縮減上下行距與元件間隙
 st.markdown(
     """
     <style>
+    /* 禁止文字選取與複製 */
     body, [data-testid="stAppViewContainer"], [data-testid="stMetricValue"] {
-        -webkit-user-select: none; /* Safari */
-        -moz-user-select: none;    /* Firefox */
-        -ms-user-select: none;     /* IE10+ */
-        user-select: none;         /* Standard */
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+    
+    /* 核心控距：大幅拉近所有元件的上下行距 */
+    [data-testid="stVerticalBlock"] > div {
+        padding-top: 0rem !important;
+        padding-bottom: 0.2rem !important;
+    }
+    
+    /* 縮減數據字卡 (Metric) 的上方空白 */
+    .stMetric {
+        margin-top: -12px !important;
+    }
+    
+    /* 縮減分隔線的上下外級距 */
+    hr {
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# 1. 修改主標題
-st.title("即時報價")
-st.caption("專為手機設計的即時監控面板")
+# 1 & 5. 移除副標題，並將主標題以 HTML 強制絕對置中
+st.markdown("<h1 style='text-align: center;'>即時報價</h1>", unsafe_allow_html=True)
 
 def get_max_usdt_twd():
     url = "https://max-api.maicoin.com/api/v2/tickers/usdttwd"
@@ -83,21 +100,23 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 🔄 立即確認最新價格按鈕
-st.button("🔄 立即確認最新價格", use_container_width=True)
+# 2. 修改按鈕文字，移除前面所有圖示
+st.button("更新價格", use_container_width=True)
 
-# 獲取即時數據 (已移除不必要的 SELL 數據請求，優化載入速度)
+# 獲取即時數據
 max_data = get_max_usdt_twd()
 vnd_buy = get_binance_p2p_usdt_vnd("BUY")
 
 # 強制修正為台灣時區 (UTC+8)
 taiwan_tz = timezone(timedelta(hours=8))
 now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
-st.write(f"🕒 台灣報價時間：`{now}`")
+
+# 3. 修改為指定的英文時間標籤，移除前方時鐘圖示
+st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
 
-# 2. 修改為指定的 MAX 區塊名稱
+# 修改為指定的 MAX 區塊名稱
 st.subheader("MAX (USDT/TWD)")
 if max_data:
     st.metric(label="最新成交價 (TWD)", value=f"{max_data['last']:.3f}")
@@ -106,10 +125,9 @@ else:
 
 st.markdown("---")
 
-# 3. 修改為指定的 Binance P2P 區塊名稱
+# 修改為指定的 Binance P2P 區塊名稱
 st.subheader("VND/USDT (Binance P2P)")
 if vnd_buy:
-    # 4. 已完全刪除原有的賣出 (變現) 資訊，只保留單一純淨的買入報價大字卡
     st.metric(label="VND 買 USDT (真實市場最優成本)", value=f"{vnd_buy:,.0f} ₫")
 else:
     st.error("幣安 P2P 數據獲取失敗")
