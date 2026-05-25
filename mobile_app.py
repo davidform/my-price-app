@@ -28,42 +28,51 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
-    # 回歸最安全、100% 不會被幣安拒絕的基礎 Payload
+    # 擴大抓取量至 20 筆，交由 Python 內部進行精準篩選
     payload = {
-        "fiat": "VND", 
-        "page": 1, 
-        "rows": 5, 
-        "tradeType": trade_type,
-        "asset": "USDT", 
-        "countries": [], 
-        "payTypes": [],            # 保持留空，避免觸發後端字串阻擋
-        "proMerchantAds": False, 
-        "shieldMerchantAds": False, 
-        "publisherType": None      # 保持留空，確保能成功拿到數據
+        "fiat": "VND", "page": 1, "rows": 20, "tradeType": trade_type,
+        "asset": "USDT", "countries": [], "payTypes": [],
+        "proMerchantAds": False, "shieldMerchantAds": False, "publisherType": None
     }
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=5)
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("data"):
-                # 提取前幾筆商家的價格
-                prices = [float(item["adv"]["price"]) for item in res_json["data"]]
+                valid_prices = []
                 
-                if len(prices) >= 2:
+                for item in res_json["data"]:
+                    # 防線 1：模擬網頁勾選「只顯示認證商家 (Merchant)」
+                    is_merchant = item.get("advertiser", {}).get("userType") == "merchant"
+                    
+                    # 防線 2：阻擋電子錢包，只保留包含「Bank（銀行）」或「Transfer（轉帳）」的渠道
+                    trade_methods = item.get("adv", {}).get("tradeMethods", [])
+                    has_bank = False
+                    for method in trade_methods:
+                        m_name = str(method.get("tradeMethodName", "")).lower()
+                        m_id = str(method.get("identifier", "")).lower()
+                        if "bank" in m_name or "transfer" in m_name or "bank" in m_id:
+                            has_bank = True
+                            break
+                    
+                    # 只有同時通過「認證商家」與「銀行轉帳」的純淨價格才會被納入計算
+                    if is_merchant and has_bank:
+                        valid_prices.append(float(item["adv"]["price"]))
+                
+                # 防線 3：運用演算法自動識別並剔除「限時置頂廣告」
+                if len(valid_prices) >= 2:
                     if trade_type == "BUY":
-                        # BUY (用戶買入)：正常常規排序應由低到高 (如 26417, 26419)
-                        # 如果第一筆（置頂廣告）大於第二筆（如 27329 > 26417），說明是高價廣告，自動跳過並精準鎖定第二排常規報價！
-                        if prices[0] > prices[1]:
-                            return prices[1]
-                        return prices[0]
+                        # 正常排序應由低到高。若第一筆(置頂)大於第二筆，代表它是高價廣告，自動跳過取第二個常規最優價
+                        if valid_prices[0] > valid_prices[1]:
+                            return valid_prices[1]
+                        return valid_prices[0]
                     else:
-                        # SELL (用戶賣出)：正常常規排序應由高到低 (如 26400, 26380)
-                        # 如果第一筆小於第二筆，說明是低價廣告，自動跳過取第二排常規報價！
-                        if prices[0] < prices[1]:
-                            return prices[1]
-                        return prices[0]
-                elif len(prices) == 1:
-                    return prices[0]
+                        # SELL 正常排序應由高到低。若第一筆小於第二筆，自動跳過取第二個常規最優價
+                        if valid_prices[0] < valid_prices[1]:
+                            return valid_prices[1]
+                        return valid_prices[0]
+                elif len(valid_prices) == 1:
+                    return valid_prices[0]
     except:
         pass
     return None
