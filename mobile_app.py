@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 # 設定網頁標題與手機版優化
 st.set_page_config(page_title="跨境匯率監控", page_icon="💰", layout="centered")
 
-st.title("💰 跨境資產即時報價")
+st.title("💰 即時報價")
 st.caption("專為手機設計的即時監控面板")
 
 def get_max_usdt_twd():
