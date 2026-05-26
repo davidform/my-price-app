@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import threading
 import telebot
+import time
 from datetime import datetime, timedelta, timezone
 
 # 1. 網頁端初始化與視覺控制
@@ -10,36 +11,23 @@ st.set_page_config(page_title="即時報價", page_icon="💰", layout="centered
 st.markdown(
     """
     <style>
-    /* 禁止文字選取與複製 */
     body, [data-testid="stAppViewContainer"], [data-testid="stMetricValue"] {
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
     }
-    
-    /* 核心控距：大幅拉近所有元件的上下行距 */
     [data-testid="stVerticalBlock"] > div {
         padding-top: 0rem !important;
         padding-bottom: 0.2rem !important;
     }
-    
-    /* 縮減數據字卡 (Metric) 的上方空白 */
-    .stMetric {
-        margin-top: -12px !important;
-    }
-    
-    /* 縮減分隔線的上下外級距 */
-    hr {
-        margin-top: 8px !important;
-        margin-bottom: 8px !important;
-    }
+    .stMetric { margin-top: -12px !important; }
+    hr { margin-top: 8px !important; margin-bottom: 8px !important; }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# 標題完全置中
 st.markdown("<h1 style='text-align: center;'>即時報價</h1>", unsafe_allow_html=True)
 
 # 2. 核心數據抓取邏輯
@@ -84,7 +72,6 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                     if is_merchant and has_bank:
                         valid_prices.append(float(item["adv"]["price"]))
                 
-                # 自動識別並剔除付費置頂廣告
                 if len(valid_prices) >= 2:
                     if trade_type == "BUY":
                         return valid_prices[1] if valid_prices[0] > valid_prices[1] else valid_prices[0]
@@ -96,7 +83,17 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         pass
     return None
 
-# 3. 🤖 Telegram 機器人背景智慧執行緒 (保持上一版完全對齊的格式)
+# 3. 🤖 Telegram 背景永動監聽守護進程
+def bot_worker(bot_instance):
+    """包裹在無限迴圈與異常捕捉中，一旦網路中斷崩潰，5秒後會自動原地復活重啟監聽"""
+    while True:
+        try:
+            # 加上明確的超時設定，避免線程卡死
+            bot_instance.infinity_polling(timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            # 發生任何斷線崩潰，等待5秒後自動重新進入防線
+            time.sleep(5)
+
 @st.cache_resource
 def launch_telegram_bot():
     try:
@@ -115,25 +112,24 @@ def launch_telegram_bot():
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
-            
             if max_data:
                 reply_text += f"🔸 MAX (USDT/TWD) : {max_data['last']:.3f}\n"
-            
             if vnd_buy and vnd_sell:
                 reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
                 reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
-                
             reply_text += f"────────────────"
             bot.reply_to(message, reply_text)
 
-        threading.Thread(target=bot.infinity_polling, daemon=True).start()
+        # 指向我們改良過、具備無限自癒能力的 worker
+        t = threading.Thread(target=bot_worker, args=(bot,), daemon=True)
+        t.start()
     except Exception as e:
         pass
 
 # 啟動機器人
 launch_telegram_bot()
 
-# 4. 網頁端前端畫面渲染 (根據您的全新 5 項要求完美對齊)
+# 4. 網頁端前端畫面渲染
 st.button("更新價格", use_container_width=True)
 
 max_data = get_max_usdt_twd()
@@ -145,24 +141,17 @@ now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
 st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
-
-# 5. 將 MAX (USDT/TWD) 改為 "MAX"
 st.subheader("MAX")
 if max_data:
-    # 4. 將 "最新成交價" 改為 "USDT / TWD"
     st.metric(label="USDT / TWD", value=f"{max_data['last']:.3f}")
 else:
     st.error("MAX 數據獲取失敗")
 
 st.markdown("---")
-
-# 1. 將 VND/USDT(Binance P2P) 改為 "Binance P2P"
 st.subheader("Binance P2P")
 if vnd_buy and vnd_sell:
     col1, col2 = st.columns(2)
-    # 2. 將 VND 買 USDT 改為 "VND / USDT"
     col1.metric(label="VND / USDT", value=f"{vnd_buy:,.0f} ₫")
-    # 3. 將 USDT 買 VND 改為 "USDT / VND"
     col2.metric(label="USDT / VND", value=f"{vnd_sell:,.0f} ₫")
 else:
     st.error("幣安 P2P 數據獲取失敗")
