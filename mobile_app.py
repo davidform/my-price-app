@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import threading
 import telebot
-import time
 from datetime import datetime, timedelta, timezone
 
 # 1. 網頁端初始化與視覺控制
@@ -11,12 +10,15 @@ st.set_page_config(page_title="即時報價", page_icon="💰", layout="centered
 st.markdown(
     """
     <style>
+    /* 禁止文字選取與複製 */
     body, [data-testid="stAppViewContainer"], [data-testid="stMetricValue"] {
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
     }
+    
+    /* 核心控距 */
     [data-testid="stVerticalBlock"] > div {
         padding-top: 0rem !important;
         padding-bottom: 0.2rem !important;
@@ -44,17 +46,24 @@ def get_max_usdt_twd():
 
 def get_binance_p2p_usdt_vnd(trade_type="BUY"):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    
+    # ✨ 升級防禦型 Headers：注入語系與客戶端身分，完美模擬網頁真實行為
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Clienttype": "web",
+        "Lang": "zh-TW",
+        "Origin": "https://p2p.binance.com",
+        "Referer": "https://p2p.binance.com/zh-TW/trade/all-payments/USDT?fiat=VND"
     }
+    
     payload = {
         "fiat": "VND", "page": 1, "rows": 20, "tradeType": trade_type,
         "asset": "USDT", "countries": [], "payTypes": [],
         "proMerchantAds": False, "shieldMerchantAds": False, "publisherType": None
     }
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=5)
+        response = requests.post(url, headers=headers, json=payload, timeout=6)
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("data"):
@@ -74,26 +83,20 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                 
                 if len(valid_prices) >= 2:
                     if trade_type == "BUY":
-                        return valid_prices[1] if valid_prices[0] > valid_prices[1] else valid_prices[0]
+                        return (valid_prices[1] if valid_prices[0] > valid_prices[1] else valid_prices[0]), "OK"
                     else:
-                        return valid_prices[1] if valid_prices[0] < valid_prices[1] else valid_prices[0]
+                        return (valid_prices[1] if valid_prices[0] < valid_prices[1] else valid_prices[0]), "OK"
                 elif len(valid_prices) == 1:
-                    return valid_prices[0]
-    except:
-        pass
-    return None
+                    return valid_prices[0], "OK"
+                return None, "未篩選到優質認證商家"
+            return None, "幣安回傳空數據池"
+        else:
+            # 傳回明確的網頁狀態碼，用來識別是否被封鎖 (例如 403)
+            return None, f"HTTP {response.status_code}"
+    except Exception as e:
+        return None, f"伺服器連線超時: {str(e)}"
 
-# 3. 🤖 Telegram 背景永動監聽守護進程
-def bot_worker(bot_instance):
-    """包裹在無限迴圈與異常捕捉中，一旦網路中斷崩潰，5秒後會自動原地復活重啟監聽"""
-    while True:
-        try:
-            # 加上明確的超時設定，避免線程卡死
-            bot_instance.infinity_polling(timeout=20, long_polling_timeout=10)
-        except Exception as e:
-            # 發生任何斷線崩潰，等待5秒後自動重新進入防線
-            time.sleep(5)
-
+# 3. 🤖 Telegram 機器人背景智慧執行緒
 @st.cache_resource
 def launch_telegram_bot():
     try:
@@ -103,8 +106,8 @@ def launch_telegram_bot():
         @bot.message_handler(func=lambda message: True)
         def reply_current_prices(message):
             max_data = get_max_usdt_twd()
-            vnd_buy = get_binance_p2p_usdt_vnd("BUY")
-            vnd_sell = get_binance_p2p_usdt_vnd("SELL")
+            vnd_buy, buy_err = get_binance_p2p_usdt_vnd("BUY")
+            vnd_sell, sell_err = get_binance_p2p_usdt_vnd("SELL")
             
             taiwan_tz = timezone(timedelta(hours=8))
             timestamp = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -112,18 +115,21 @@ def launch_telegram_bot():
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
+            
             if max_data:
                 reply_text += f"🔸 MAX (USDT/TWD) : {max_data['last']:.3f}\n"
+            
             if vnd_buy and vnd_sell:
                 reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
                 reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
+            else:
+                reply_text += f"❌ 幣安異常: {buy_err if vnd_buy is None else sell_err}\n"
+                
             reply_text += f"────────────────"
             bot.reply_to(message, reply_text)
 
-        # 指向我們改良過、具備無限自癒能力的 worker
-        t = threading.Thread(target=bot_worker, args=(bot,), daemon=True)
-        t.start()
-    except Exception as e:
+        threading.Thread(target=bot.infinity_polling, daemon=True).start()
+    except:
         pass
 
 # 啟動機器人
@@ -133,14 +139,15 @@ launch_telegram_bot()
 st.button("更新價格", use_container_width=True)
 
 max_data = get_max_usdt_twd()
-vnd_buy = get_binance_p2p_usdt_vnd("BUY")
-vnd_sell = get_binance_p2p_usdt_vnd("SELL")
+vnd_buy, buy_msg = get_binance_p2p_usdt_vnd("BUY")
+vnd_sell, sell_msg = get_binance_p2p_usdt_vnd("SELL")
 
 taiwan_tz = timezone(timedelta(hours=8))
 now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
 st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
+
 st.subheader("MAX")
 if max_data:
     st.metric(label="USDT / TWD", value=f"{max_data['last']:.3f}")
@@ -148,10 +155,12 @@ else:
     st.error("MAX 數據獲取失敗")
 
 st.markdown("---")
+
 st.subheader("Binance P2P")
 if vnd_buy and vnd_sell:
     col1, col2 = st.columns(2)
     col1.metric(label="VND / USDT", value=f"{vnd_buy:,.0f} ₫")
     col2.metric(label="USDT / VND", value=f"{vnd_sell:,.0f} ₫")
 else:
-    st.error("幣安 P2P 數據獲取失敗")
+    # 診斷模式：直接輸出底層被擋的真實原因
+    st.error(f"❌ 幣安 P2P 數據獲取失敗（原因：{buy_msg if vnd_buy is None else sell_msg}）")
