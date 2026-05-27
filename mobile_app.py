@@ -83,6 +83,7 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                         else:
                             backup_prices.append(float(item["adv"]["price"]))
                 
+                # 智慧備用防線切換
                 final_pool = valid_prices if valid_prices else backup_prices
                 
                 if len(final_pool) >= 2:
@@ -99,11 +100,10 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
     except Exception as e:
         return None, f"連線超時: {str(e)}"
 
-# 3. 🤖 Telegram 機器人背景智慧執行緒 (完美相容 Render 環境)
+# 3. 🤖 Telegram 機器人背景智慧執行緒
 @st.cache_resource
 def launch_telegram_bot():
     try:
-        # ✨ 關鍵升級：優先讀取 Render 環境變數，若無則讀取 Streamlit Secrets
         tg_token = os.environ.get("TELEGRAM_TOKEN")
         if not tg_token and "TELEGRAM_TOKEN" in st.secrets:
             tg_token = st.secrets["TELEGRAM_TOKEN"]
@@ -122,7 +122,6 @@ def launch_telegram_bot():
             taiwan_tz = timezone(timedelta(hours=8))
             timestamp = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
             
-            # Telegram 極簡金融格式
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
@@ -132,7 +131,7 @@ def launch_telegram_bot():
                 reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
                 reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
             else:
-                reply_text += f"❌ 幣安 P2P 異常\n"
+                reply_text += f"❌ 幣安 P2P 異常: {buy_err if vnd_buy is None else sell_err}\n"
             reply_text += f"────────────────"
             bot.reply_to(message, reply_text)
 
@@ -143,7 +142,7 @@ def launch_telegram_bot():
 # 啟動機器人
 launch_telegram_bot()
 
-# 4. 網頁端前端畫面渲染 (極簡 Tickers 格式)
+# 4. 網頁端前端畫面渲染
 st.button("更新價格", use_container_width=True)
 
 max_data = get_max_usdt_twd()
@@ -168,4 +167,5 @@ if vnd_buy and vnd_sell:
     col1.metric(label="VND / USDT", value=f"{vnd_buy:,.0f} ₫")
     col2.metric(label="USDT / VND", value=f"{vnd_sell:,.0f} ₫")
 else:
-    st.error("幣安 P2P 數據獲取失敗")
+    # 智慧診斷輸出
+    st.error(f"❌ 幣安 P2P 數據獲取失敗（原因：{buy_msg if vnd_buy is None else sell_msg}）")
