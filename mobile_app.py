@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import threading
 import telebot
+import os
 from datetime import datetime, timedelta, timezone
 
 # 1. 網頁端初始化與視覺控制
@@ -32,7 +33,7 @@ st.markdown(
 
 st.markdown("<h1 style='text-align: center;'>即時報價</h1>", unsafe_allow_html=True)
 
-# 2. 核心數據抓取邏輯
+# 2. 核心數據抓取邏輯 (100筆大數據深度彈性池)
 def get_max_usdt_twd():
     url = "https://max-api.maicoin.com/api/v2/tickers/usdttwd"
     try:
@@ -46,19 +47,14 @@ def get_max_usdt_twd():
 
 def get_binance_p2p_usdt_vnd(trade_type="BUY"):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    
-    # ✨ 升級防禦型 Headers：注入語系與客戶端身分，完美模擬網頁真實行為
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Clienttype": "web",
-        "Lang": "zh-TW",
-        "Origin": "https://p2p.binance.com",
-        "Referer": "https://p2p.binance.com/zh-TW/trade/all-payments/USDT?fiat=VND"
+        "Clienttype": "web", "Lang": "zh-TW", "Origin": "https://p2p.binance.com"
     }
     
     payload = {
-        "fiat": "VND", "page": 1, "rows": 20, "tradeType": trade_type,
+        "fiat": "VND", "page": 1, "rows": 100, "tradeType": trade_type,
         "asset": "USDT", "countries": [], "payTypes": [],
         "proMerchantAds": False, "shieldMerchantAds": False, "publisherType": None
     }
@@ -67,7 +63,9 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("data"):
-                valid_prices = []
+                valid_prices = []   # 優先池：黃勾認證商家 + 銀行轉帳
+                backup_prices = []  # 備用池：常規商家 + 銀行轉帳
+                
                 for item in res_json["data"]:
                     is_merchant = item.get("advertiser", {}).get("userType") == "merchant"
                     trade_methods = item.get("adv", {}).get("tradeMethods", [])
@@ -78,29 +76,41 @@ def get_binance_p2p_usdt_vnd(trade_type="BUY"):
                         if "bank" in m_name or "transfer" in m_name or "bank" in m_id:
                             has_bank = True
                             break
-                    if is_merchant and has_bank:
-                        valid_prices.append(float(item["adv"]["price"]))
+                    
+                    if has_bank:
+                        if is_merchant:
+                            valid_prices.append(float(item["adv"]["price"]))
+                        else:
+                            backup_prices.append(float(item["adv"]["price"]))
                 
-                if len(valid_prices) >= 2:
+                final_pool = valid_prices if valid_prices else backup_prices
+                
+                if len(final_pool) >= 2:
                     if trade_type == "BUY":
-                        return (valid_prices[1] if valid_prices[0] > valid_prices[1] else valid_prices[0]), "OK"
+                        return (final_pool[1] if final_pool[0] > final_pool[1] else final_pool[0]), "OK"
                     else:
-                        return (valid_prices[1] if valid_prices[0] < valid_prices[1] else valid_prices[0]), "OK"
-                elif len(valid_prices) == 1:
-                    return valid_prices[0], "OK"
-                return None, "未篩選到優質認證商家"
+                        return (final_pool[1] if final_pool[0] < final_pool[1] else final_pool[0]), "OK"
+                elif len(final_pool) == 1:
+                    return final_pool[0], "OK"
+                return None, "未篩選到任何支援銀行轉帳的商家"
             return None, "幣安回傳空數據池"
         else:
-            # 傳回明確的網頁狀態碼，用來識別是否被封鎖 (例如 403)
             return None, f"HTTP {response.status_code}"
     except Exception as e:
-        return None, f"伺服器連線超時: {str(e)}"
+        return None, f"連線超時: {str(e)}"
 
-# 3. 🤖 Telegram 機器人背景智慧執行緒
+# 3. 🤖 Telegram 機器人背景智慧執行緒 (完美相容 Render 環境)
 @st.cache_resource
 def launch_telegram_bot():
     try:
-        tg_token = st.secrets["TELEGRAM_TOKEN"]
+        # ✨ 關鍵升級：優先讀取 Render 環境變數，若無則讀取 Streamlit Secrets
+        tg_token = os.environ.get("TELEGRAM_TOKEN")
+        if not tg_token and "TELEGRAM_TOKEN" in st.secrets:
+            tg_token = st.secrets["TELEGRAM_TOKEN"]
+            
+        if not tg_token:
+            return
+
         bot = telebot.TeleBot(tg_token)
 
         @bot.message_handler(func=lambda message: True)
@@ -112,19 +122,17 @@ def launch_telegram_bot():
             taiwan_tz = timezone(timedelta(hours=8))
             timestamp = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
             
+            # Telegram 極簡金融格式
             reply_text = f"📊 即時報價單\n"
             reply_text += f"Update Time: {timestamp}\n"
             reply_text += f"────────────────\n"
-            
             if max_data:
                 reply_text += f"🔸 MAX (USDT/TWD) : {max_data['last']:.3f}\n"
-            
             if vnd_buy and vnd_sell:
                 reply_text += f"🔸 VND/USDT : {vnd_buy:,.0f} ₫\n"
                 reply_text += f"🔸 USDT/VND : {vnd_sell:,.0f} ₫\n"
             else:
-                reply_text += f"❌ 幣安異常: {buy_err if vnd_buy is None else sell_err}\n"
-                
+                reply_text += f"❌ 幣安 P2P 異常\n"
             reply_text += f"────────────────"
             bot.reply_to(message, reply_text)
 
@@ -135,7 +143,7 @@ def launch_telegram_bot():
 # 啟動機器人
 launch_telegram_bot()
 
-# 4. 網頁端前端畫面渲染
+# 4. 網頁端前端畫面渲染 (極簡 Tickers 格式)
 st.button("更新價格", use_container_width=True)
 
 max_data = get_max_usdt_twd()
@@ -147,7 +155,6 @@ now = datetime.now(taiwan_tz).strftime("%Y-%m-%d %H:%M:%S")
 st.write(f"Update Time: `{now}`")
 
 st.markdown("---")
-
 st.subheader("MAX")
 if max_data:
     st.metric(label="USDT / TWD", value=f"{max_data['last']:.3f}")
@@ -155,12 +162,10 @@ else:
     st.error("MAX 數據獲取失敗")
 
 st.markdown("---")
-
 st.subheader("Binance P2P")
 if vnd_buy and vnd_sell:
     col1, col2 = st.columns(2)
     col1.metric(label="VND / USDT", value=f"{vnd_buy:,.0f} ₫")
     col2.metric(label="USDT / VND", value=f"{vnd_sell:,.0f} ₫")
 else:
-    # 診斷模式：直接輸出底層被擋的真實原因
-    st.error(f"❌ 幣安 P2P 數據獲取失敗（原因：{buy_msg if vnd_buy is None else sell_msg}）")
+    st.error("幣安 P2P 數據獲取失敗")
